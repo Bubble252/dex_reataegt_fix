@@ -1,0 +1,29 @@
+Requirement already satisfied: eigenpy in /home/bubble/miniconda3/envs/dexYCB/lib/python3.10/site-packages (3.5.1)
+Collecting eigenpy
+  Using cached eigenpy-3.12.0-0-cp310-cp310-manylinux_2_28_x86_64.whl.metadata (5.5 kB)
+Requirement already satisfied: cmeel in /home/bubble/miniconda3/envs/dexYCB/lib/python3.10/site-packages (from eigenpy) (0.57.3)
+Collecting cmeel-boost~=1.89.0 (from eigenpy)
+  Downloading cmeel_boost-1.89.0-0-cp310-cp310-manylinux_2_28_x86_64.whl.metadata (1.0 kB)
+Collecting numpy<2.3,>=2.2 (from cmeel-boost~=1.89.0->eigenpy)
+  Using cached numpy-2.2.6-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (62 kB)
+Requirement already satisfied: tomli>=2.1.0 in /home/bubble/miniconda3/envs/dexYCB/lib/python3.10/site-packages (from cmeel->eigenpy) (2.2.1)
+Downloading eigenpy-3.12.0-0-cp310-cp310-manylinux_2_28_x86_64.whl (6.0 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 6.0/6.0 MB 6.1 MB/s  0:00:01
+Downloading cmeel_boost-1.89.0-0-cp310-cp310-manylinux_2_28_x86_64.whl (36.0 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 36.0/36.0 MB 5.2 MB/s  0:00:06
+Using cached numpy-2.2.6-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (16.8 MB)
+Installing collected packages: numpy, cmeel-boost, eigenpy
+  Attempting uninstall: numpy
+    Found existing installation: numpy 1.26.4
+    Uninstalling numpy-1.26.4:
+      Successfully uninstalled numpy-1.26.4
+  Attempting uninstall: cmeel-boost
+    Found existing installation: cmeel-boost 1.83.0
+    Uninstalling cmeel-boost-1.83.0:
+      Successfully uninstalled cmeel-boost-1.83.0
+  Attempting uninstall: eigenpy
+    Found existing installation: eigenpy 3.5.1
+    Uninstalling eigenpy-3.5.1:
+      Successfully uninstalled eigenpy-3.5.1
+
+Successfully installed cmeel-boost-1.89.0 eigenpy-3.12.0 numpy-2.2.6
