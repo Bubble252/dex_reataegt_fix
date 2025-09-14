@@ -13,9 +13,8 @@ def main():
         if not ret:
             break
 
-        # BGR -> RGB
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        num_box, joint_pos, keypoint_2d, wrist_rot, openness, wrist_world = detector.detect(rgb)
+        num_box, joint_pos, keypoint_2d, wrist_rot, openness, wrist_world_pos = detector.detect(rgb)
 
         # 绘制 2D landmarks
         if keypoint_2d is not None:
@@ -31,11 +30,16 @@ def main():
         else:
             # 欧拉角
             r = R.from_matrix(wrist_rot)
-            euler_angles = r.as_euler('xyz', degrees=True)  # 单位：度
-            print("Euler angles (deg):", euler_angles)
-            print("Wrist world position:", wrist_world)
+            euler_angles = r.as_euler('xyz', degrees=True)
 
-            # 在画面上显示
+            # 手腕世界坐标（摄像机坐标系下）
+            wrist_pos = wrist_world_pos
+
+            # 控制台输出
+            print("Euler angles (deg):", euler_angles)
+            print("Wrist world position (m):", wrist_pos)
+
+            # 显示在画面上
             cv2.putText(frame, f"Openness: {openness:.3f}", (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
             cv2.putText(frame, f"Euler X: {euler_angles[0]:.1f}", (10, 70),
@@ -44,11 +48,12 @@ def main():
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255,0,0), 2)
             cv2.putText(frame, f"Euler Z: {euler_angles[2]:.1f}", (10, 130),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255,0,0), 2)
-            cv2.putText(frame, f"Wrist X: {wrist_world[0]:.3f}", (10, 160),
+
+            cv2.putText(frame, f"Wrist X: {wrist_pos[0]:.3f}", (10, 160),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,128,255), 2)
-            cv2.putText(frame, f"Wrist Y: {wrist_world[1]:.3f}", (10, 190),
+            cv2.putText(frame, f"Wrist Y: {wrist_pos[1]:.3f}", (10, 190),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,128,255), 2)
-            cv2.putText(frame, f"Wrist Z: {wrist_world[2]:.3f}", (10, 220),
+            cv2.putText(frame, f"Wrist Z: {wrist_pos[2]:.3f}", (10, 220),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,128,255), 2)
 
         cv2.imshow("Hand Pose Demo", frame)
