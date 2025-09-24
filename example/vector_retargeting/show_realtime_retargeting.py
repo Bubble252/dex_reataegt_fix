@@ -21,7 +21,25 @@ from dex_retargeting.constants import (
 from dex_retargeting.retargeting_config import RetargetingConfig
 from single_hand_detector import SingleHandDetector
 
+def rotationMatrixToEulerAngles(R):
+    """
+    将旋转矩阵转换为欧拉角 (XYZ顺序)
+    返回角度单位：度
+    """
+    sy = np.sqrt(R[0,0] * R[0,0] + R[1,0] * R[1,0])
+    singular = sy < 1e-6
 
+    if not singular:
+        x = np.arctan2(R[2,1], R[2,2])
+        y = np.arctan2(-R[2,0], sy)
+        z = np.arctan2(R[1,0], R[0,0])
+    else:
+        x = np.arctan2(-R[1,2], R[1,1])
+        y = np.arctan2(-R[2,0], sy)
+        z = 0
+
+    return np.degrees([x, y, z])  # 返回角度
+    
 def start_retargeting(queue: multiprocessing.Queue, robot_dir: str, config_path: str):
     RetargetingConfig.set_default_urdf_dir(str(robot_dir))
     logger.info(f"Start retargeting with config {config_path}")
@@ -136,6 +154,65 @@ def start_retargeting(queue: multiprocessing.Queue, robot_dir: str, config_path:
         if joint_pos is None:
             logger.warning(f"{hand_type} hand is not detected.")
         else:
+            print("Wrist 3D position:", joint_pos[1])
+            
+            
+            
+                # --- 将 MediaPipe 关键点转换为 numpy ---
+    # keypoint_2d 是 NormalizedLandmarkList，每个 landmark 有 x, y, z
+            keypoints = np.array([[lm.x * bgr.shape[1], lm.y * bgr.shape[0]] 
+                                  for lm in keypoint_2d.landmark], dtype=np.float32)
+                # 选择手腕 + 手掌关节
+            selected_idxs = [0, 1, 5, 9, 13, 17]  # wrist + 4 fingers MCP
+            X_local = joint_pos[selected_idxs]
+            x_2d = keypoints[selected_idxs]
+            
+            
+            
+                # 摄像头内参
+            fx = fy = 600
+            cx = cy = 300
+            camera_matrix = np.array([[fx, 0, cx],
+                                      [0, fy, cy],
+                                      [0, 0, 1]], dtype=np.float32)
+            dist_coeffs = np.zeros(5)
+            
+            
+            
+
+            # solvePnP
+            success, rvec, tvec = cv2.solvePnP(X_local, x_2d, camera_matrix, dist_coeffs)   
+            
+            if success:
+                R, _ = cv2.Rodrigues(rvec)
+                t = tvec.flatten()
+                euler_angles = rotationMatrixToEulerAngles(R)
+                print(f"Hand pose: t={t}, Euler angles={euler_angles}")  
+            
+            
+                # 在图像上显示手腕位姿
+                wrist_pixel = tuple(x_2d[0].astype(int))
+                cv2.putText(
+                    bgr,
+                    f"X:{t[0]:.2f} Y:{t[1]:.2f} Z:{t[2]:.2f}",
+                    (wrist_pixel[0], wrist_pixel[1]-20),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    (0,0,255),
+                    2,
+                )
+                cv2.putText(
+                    bgr,
+                    f"Roll:{euler_angles[0]:.1f} Pitch:{euler_angles[1]:.1f} Yaw:{euler_angles[2]:.1f}",
+                    wrist_pixel,
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    (0,0,255),
+                    2,
+                )  
+            else:
+                print("PnP failed for this frame.")
+                 
             retargeting_type = retargeting.optimizer.retargeting_type
             indices = retargeting.optimizer.target_link_human_indices
             if retargeting_type == "POSITION":
