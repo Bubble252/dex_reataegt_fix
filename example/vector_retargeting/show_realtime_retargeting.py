@@ -19,27 +19,32 @@ from dex_retargeting.constants import (
     get_default_config_path,
 )
 from dex_retargeting.retargeting_config import RetargetingConfig
-from single_hand_detector import SingleHandDetector
+#from single_hand_detector import SingleHandDetector
+from scipy.spatial.transform import Rotation as R
+
+from single_hand_detector_improved import SingleHandDetector
+
+
 
 def rotationMatrixToEulerAngles(R):
     """
-    将旋转矩阵转换为欧拉角 (XYZ顺序)
-    返回角度单位：度
+    将旋转矩阵转换为欧拉角 (XYZ顺序)，返回角度单位：度
     """
-    sy = np.sqrt(R[0,0] * R[0,0] + R[1,0] * R[1,0])
+    sy = np.sqrt(R[0, 0] * R[0, 0] + R[1, 0] * R[1, 0])
     singular = sy < 1e-6
 
     if not singular:
-        x = np.arctan2(R[2,1], R[2,2])
-        y = np.arctan2(-R[2,0], sy)
-        z = np.arctan2(R[1,0], R[0,0])
+        x = np.arctan2(R[2, 1], R[2, 2])
+        y = np.arctan2(-R[2, 0], sy)
+        z = np.arctan2(R[1, 0], R[0, 0])
     else:
-        x = np.arctan2(-R[1,2], R[1,1])
-        y = np.arctan2(-R[2,0], sy)
+        x = np.arctan2(-R[1, 2], R[1, 1])
+        y = np.arctan2(-R[2, 0], sy)
         z = 0
 
-    return np.degrees([x, y, z])  # 返回角度
-    
+    return np.degrees([x, y, z])
+
+
 def start_retargeting(queue: multiprocessing.Queue, robot_dir: str, config_path: str):
     RetargetingConfig.set_default_urdf_dir(str(robot_dir))
     logger.info(f"Start retargeting with config {config_path}")
@@ -53,7 +58,7 @@ def start_retargeting(queue: multiprocessing.Queue, robot_dir: str, config_path:
 
     config = RetargetingConfig.load_from_file(config_path)
 
-    # Setup
+    # Setup scene
     scene = sapien.Scene()
     render_mat = sapien.render.RenderMaterial()
     render_mat.base_color = [0.06, 0.08, 0.12, 1]
@@ -86,11 +91,13 @@ def start_retargeting(queue: multiprocessing.Queue, robot_dir: str, config_path:
     viewer.control_window.toggle_camera_lines(False)
     viewer.set_camera_pose(cam.get_local_pose())
 
-    # Load robot and set it to a good pose to take picture
+    # Load robot
     loader = scene.create_urdf_loader()
     filepath = Path(config.urdf_path)
     robot_name = filepath.stem
     loader.load_multiple_collisions_from_file = True
+
+    # robot scale
     if "ability" in robot_name:
         loader.scale = 1.5
     elif "dclaw" in robot_name:
@@ -113,110 +120,90 @@ def start_retargeting(queue: multiprocessing.Queue, robot_dir: str, config_path:
 
     robot = loader.load(filepath)
 
-    if "ability" in robot_name:
-        robot.set_pose(sapien.Pose([0, 0, -0.15]))
-    elif "shadow" in robot_name:
-        robot.set_pose(sapien.Pose([0, 0, -0.2]))
-    elif "dclaw" in robot_name:
-        robot.set_pose(sapien.Pose([0, 0, -0.15]))
-    elif "allegro" in robot_name:
-        robot.set_pose(sapien.Pose([0, 0, -0.05]))
-    elif "bhand" in robot_name:
-        robot.set_pose(sapien.Pose([0, 0, -0.2]))
-    elif "leap" in robot_name:
-        robot.set_pose(sapien.Pose([0, 0, -0.15]))
-    elif "svh" in robot_name:
-        robot.set_pose(sapien.Pose([0, 0, -0.13]))
+    # robot pose
+    pose_dict = {
+        "ability": -0.15,
+        "shadow": -0.2,
+        "dclaw": -0.15,
+        "allegro": -0.05,
+        "bhand": -0.2,
+        "leap": -0.15,
+        "svh": -0.13,
+    }
+    for key, z in pose_dict.items():
+        if key in robot_name:
+            robot.set_pose(sapien.Pose([0, 0, z]))
 
-    # Different robot loader may have different orders for joints
     sapien_joint_names = [joint.get_name() for joint in robot.get_active_joints()]
     retargeting_joint_names = retargeting.joint_names
     retargeting_to_sapien = np.array(
         [retargeting_joint_names.index(name) for name in sapien_joint_names]
     ).astype(int)
 
+    hand_detector = SingleHandDetector(
+        hand_type="Right",
+        min_detection_confidence=0.8,
+        use_pose=True,           # 可以开启 Pose 优化深度
+        real_palm_width=0.085     # 手掌实际宽度 (m)
+    )
+
     while True:
         try:
             bgr = queue.get(timeout=5)
             rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
         except Empty:
-            logger.error(
-                "Fail to fetch image from camera in 5 secs. Please check your web camera device."
-            )
+            logger.error("Fail to fetch image from camera in 5 secs.")
             return
 
-        _, joint_pos, keypoint_2d, _ = detector.detect(rgb)
+        #_, joint_pos, keypoint_2d, _ = detector.detect(rgb)
+        num_box, joint_pos, keypoint_2d, wrist_rot, openness, wrist_world_pos, joint_pos_world = hand_detector.detect(rgb)
+
         bgr = detector.draw_skeleton_on_image(bgr, keypoint_2d, style="default")
         cv2.imshow("realtime_retargeting_demo", bgr)
         if cv2.waitKey(1) & 0xFF == ord("q"):
             break
 
+
         if joint_pos is None:
-            logger.warning(f"{hand_type} hand is not detected.")
+            print(f"{hand_type} hand is not detected.                ", end="\r", flush=True)
         else:
-            print("Wrist 3D position:", joint_pos[1])
-            
-            
-            
-                # --- 将 MediaPipe 关键点转换为 numpy ---
-    # keypoint_2d 是 NormalizedLandmarkList，每个 landmark 有 x, y, z
-            keypoints = np.array([[lm.x * bgr.shape[1], lm.y * bgr.shape[0]] 
+    # 转换关键点
+            keypoints = np.array([[lm.x * bgr.shape[1], lm.y * bgr.shape[0]]
                                   for lm in keypoint_2d.landmark], dtype=np.float32)
-                # 选择手腕 + 手掌关节
-            selected_idxs = [0, 1, 5, 9, 13, 17]  # wrist + 4 fingers MCP
+            selected_idxs = [0, 1, 5, 9, 13, 17]  # wrist + MCP
             X_local = joint_pos[selected_idxs]
             x_2d = keypoints[selected_idxs]
-            
-            
-            
-                # 摄像头内参
+
             fx = fy = 600
             cx = cy = 300
             camera_matrix = np.array([[fx, 0, cx],
-                                      [0, fy, cy],
-                                      [0, 0, 1]], dtype=np.float32)
+                              [0, fy, cy],
+                              [0, 0, 1]], dtype=np.float32)
             dist_coeffs = np.zeros(5)
-            
-            
-            
 
-            # solvePnP
-            success, rvec, tvec = cv2.solvePnP(X_local, x_2d, camera_matrix, dist_coeffs)   
-            
+            success, rvec, tvec = cv2.solvePnP(X_local, x_2d, camera_matrix, dist_coeffs)
+
             if success:
-                R, _ = cv2.Rodrigues(rvec)
                 t = tvec.flatten()
-                euler_angles = rotationMatrixToEulerAngles(R)
-                print(f"Hand pose: t={t}, Euler angles={euler_angles}")  
-            
-            
-                # 在图像上显示手腕位姿
-                wrist_pixel = tuple(x_2d[0].astype(int))
-                cv2.putText(
-                    bgr,
-                    f"X:{t[0]:.2f} Y:{t[1]:.2f} Z:{t[2]:.2f}",
-                    (wrist_pixel[0], wrist_pixel[1]-20),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.5,
-                    (0,0,255),
-                    2,
-                )
-                cv2.putText(
-                    bgr,
-                    f"Roll:{euler_angles[0]:.1f} Pitch:{euler_angles[1]:.1f} Yaw:{euler_angles[2]:.1f}",
-                    wrist_pixel,
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.5,
-                    (0,0,255),
-                    2,
-                )  
+                r = R.from_matrix(wrist_rot)
+                euler_angles = r.as_euler('xyz', degrees=True)
             else:
-                print("PnP failed for this frame.")
-                 
+                t = np.array([np.nan, np.nan, np.nan])
+                euler_angles = np.array([np.nan, np.nan, np.nan])
+
+            # 实时打印 t、Euler angles 和 openness
+            print(
+                f"Hand pose: t=[{t[0]:.3f}, {t[1]:.3f}, {t[2]:.3f}], "
+                f"Euler=[{euler_angles[0]:.1f}, {euler_angles[1]:.1f}, {euler_angles[2]:.1f}], "
+                f"Openness={openness:.3f}      ",
+                end="\r", flush=True
+            )
+
+
+            # 计算 retargeting
             retargeting_type = retargeting.optimizer.retargeting_type
             indices = retargeting.optimizer.target_link_human_indices
             if retargeting_type == "POSITION":
-                indices = indices
                 ref_value = joint_pos[indices, :]
             else:
                 origin_indices = indices[0, :]
@@ -230,17 +217,12 @@ def start_retargeting(queue: multiprocessing.Queue, robot_dir: str, config_path:
 
 
 def produce_frame(queue: multiprocessing.Queue, camera_path: Optional[str] = None):
-    if camera_path is None:
-        cap = cv2.VideoCapture(0)
-    else:
-        cap = cv2.VideoCapture(camera_path)
-
+    cap = cv2.VideoCapture(0 if camera_path is None else camera_path)
     while cap.isOpened():
         success, image = cap.read()
         time.sleep(1 / 30.0)
-        if not success:
-            continue
-        queue.put(image)
+        if success:
+            queue.put(image)
 
 
 def main(
@@ -249,29 +231,19 @@ def main(
     hand_type: HandType,
     camera_path: Optional[str] = None,
 ):
-    """
-    Detects the human hand pose from a video and translates the human pose trajectory into a robot pose trajectory.
-
-    Args:
-        robot_name: The identifier for the robot. This should match one of the default supported robots.
-        retargeting_type: The type of retargeting, each type corresponds to a different retargeting algorithm.
-        hand_type: Specifies which hand is being tracked, either left or right.
-            Please note that retargeting is specific to the same type of hand: a left robot hand can only be retargeted
-            to another left robot hand, and the same applies for the right hand.
-        camera_path: the device path to feed to opencv to open the web camera. It will use 0 by default.
-    """
     config_path = get_default_config_path(robot_name, retargeting_type, hand_type)
     robot_dir = (
         Path(__file__).absolute().parent.parent.parent / "assets" / "robots" / "hands"
     )
 
+
+
+
+
+
     queue = multiprocessing.Queue(maxsize=1000)
-    producer_process = multiprocessing.Process(
-        target=produce_frame, args=(queue, camera_path)
-    )
-    consumer_process = multiprocessing.Process(
-        target=start_retargeting, args=(queue, str(robot_dir), str(config_path))
-    )
+    producer_process = multiprocessing.Process(target=produce_frame, args=(queue, camera_path))
+    consumer_process = multiprocessing.Process(target=start_retargeting, args=(queue, str(robot_dir), str(config_path)))
 
     producer_process.start()
     consumer_process.start()
@@ -280,7 +252,7 @@ def main(
     consumer_process.join()
     time.sleep(5)
 
-    print("done")
+    print("\nDone.")
 
 
 if __name__ == "__main__":

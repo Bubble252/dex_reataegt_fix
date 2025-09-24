@@ -1,3 +1,4 @@
+# single_hand_detector.py
 import mediapipe as mp
 import mediapipe.framework as framework
 import numpy as np

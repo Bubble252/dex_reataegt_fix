@@ -41,6 +41,24 @@ class SingleHandDetector:
         self.detected_hand_type = hand_type if selfie else inverse_hand_dict[hand_type]
 
     @staticmethod
+    def draw_skeleton_on_image(image, keypoint_2d, style="default"):
+        """
+        在图像上绘制手部关键点和骨架
+        """
+        if keypoint_2d is None:
+            return image
+
+        if style == "default" or style == "white":
+            # 绘制关键点和连接线
+            mp.solutions.drawing_utils.draw_landmarks(
+                image,
+                keypoint_2d,
+                mp.solutions.hands.HAND_CONNECTIONS,
+                mp.solutions.drawing_styles.get_default_hand_landmarks_style(),
+                mp.solutions.drawing_styles.get_default_hand_connections_style(),
+            )
+        return image
+    @staticmethod
     def parse_keypoint_3d(keypoint_3d: landmark_pb2.LandmarkList) -> np.ndarray:
         keypoint = np.empty([21, 3], dtype=np.float32)
         for i in range(21):
