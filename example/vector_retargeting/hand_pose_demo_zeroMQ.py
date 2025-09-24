@@ -120,24 +120,38 @@ def main():
                 
                 t_filtered = filtered_state['position']
                 euler_filtered_deg = filtered_state['euler_degrees']
-                openness_filtered = filtered_state['openness']
+                #openness_filtered = filtered_state['openness']
+                openness_filtered = np.clip(filtered_state['openness'], 0.5, 1.0)  # 限制在0.5-1范围内
+                openness_filtered = (openness_filtered - 0.5) * 2  # 线性映射到0-1
                 
+
+                #将yaw的原始偏移调整为0附近
+                euler_filtered_deg[2] = euler_filtered_deg[2] - 90
+
+
                 # 转换原始角度为度数用于显示
                 euler_raw_deg = np.degrees(euler_raw)
                 
                 # 准备发布数据 - 根据要求进行坐标转换
                 # x,y坐标乘以10，z不变
+                # publish_position = [
+                #     float(t_filtered[0] * 2+0.21),  # x * 10
+                #     float(t_filtered[1] * 3),  # y * 10
+                #     float(t_filtered[2] * 0.5+0.08)        # z 不变
+                # ]
+
+                #以下是人性化的位置调整
                 publish_position = [
-                    float(t_filtered[0] * 2+0.21),  # x * 10
-                    float(t_filtered[1] * 3),  # y * 10
-                    float(t_filtered[2] * 0.5+0.08)        # z 不变
+                    float(t_filtered[2] * (-0.4) + 0.45),  # z 机械臂x前后用手z深度
+                    float(t_filtered[0] *(-0.3)),   # x 机械臂y左右用手x水平
+                    float(t_filtered[1] * (-1.02) + 0.28) # y 机械臂z上下用手y上下
                 ]
                 
                 # 欧拉角从度数转换为弧度，范围从(-180,180)转到(-pi,pi)
                 euler_filtered_rad = degrees_to_radians_range(euler_filtered_deg)
                 publish_orientation = [
                     float(euler_filtered_rad[0]),  # roll
-                    float(euler_filtered_rad[1]),  # pitch
+                    float(-euler_filtered_rad[1]),  # pitch
                     float(euler_filtered_rad[2])   # yaw
                 ]
                 
