@@ -55,6 +55,11 @@ def main():
     show_comparison = True
     publish_enabled = True
     
+    # Z轴锁定相关变量
+    z_locked = False
+    locked_z_value = None
+    openness_threshold = 1.35  # 开合度阈值，低于此值时锁定Z轴
+    
     # 发布统计
     publish_count = 0
     last_publish_time = time.time()
@@ -120,7 +125,6 @@ def main():
                 
                 t_filtered = filtered_state['position']
                 euler_filtered_deg = filtered_state['euler_degrees']
-                #openness_filtered = filtered_state['openness']
                 openness_filtered = np.clip(filtered_state['openness'], 0.5, 1.0)  # 限制在0.5-1范围内
                 openness_filtered = (openness_filtered - 0.5) * 2  # 线性映射到0-1
                 
@@ -128,23 +132,34 @@ def main():
                 #将yaw的原始偏移调整为0附近
                 euler_filtered_deg[2] = euler_filtered_deg[2] - 90
 
+                # Z轴锁定逻辑
+                if openness < openness_threshold:
+                    if not z_locked:
+                        # 刚进入锁定状态，保存当前Z值
+                        z_locked = True
+                        locked_z_value = t_filtered[2]
+                        print(f"\nZ轴锁定! 锁定值: {locked_z_value:.3f}, openness: {openness:.3f}")
+                    # 使用锁定的Z值
+                    t_filtered_with_lock = t_filtered.copy()
+                    t_filtered_with_lock[2] = locked_z_value
+                else:
+                    if z_locked:
+                        # 刚解除锁定状态
+                        z_locked = False
+                        locked_z_value = None
+                        print(f"\nZ轴解锁! openness: {openness:.3f}")
+                    # 使用正常的滤波值
+                    t_filtered_with_lock = t_filtered.copy()
 
                 # 转换原始角度为度数用于显示
                 euler_raw_deg = np.degrees(euler_raw)
                 
-                # 准备发布数据 - 根据要求进行坐标转换
-                # x,y坐标乘以10，z不变
-                # publish_position = [
-                #     float(t_filtered[0] * 2+0.21),  # x * 10
-                #     float(t_filtered[1] * 3),  # y * 10
-                #     float(t_filtered[2] * 0.5+0.08)        # z 不变
-                # ]
-
+                # 准备发布数据 - 根据要求进行坐标转换，使用锁定后的Z值
                 #以下是人性化的位置调整
                 publish_position = [
-                    float(t_filtered[2] * (-0.4) + 0.45),  # z 机械臂x前后用手z深度
-                    float(t_filtered[0] *(-0.3)),   # x 机械臂y左右用手x水平
-                    float(t_filtered[1] * (-1.02) + 0.28) # y 机械臂z上下用手y上下
+                    float(t_filtered_with_lock[2] * (-0.4) + 0.45),  # z 机械臂x前后用手z深度（使用锁定值）
+                    float(t_filtered_with_lock[0] *(-0.3)),   # x 机械臂y左右用手x水平
+                    float(t_filtered_with_lock[1] * (-1.02) + 0.28) # y 机械臂z上下用手y上下
                 ]
                 
                 # 欧拉角从度数转换为弧度，范围从(-180,180)转到(-pi,pi)
@@ -174,14 +189,15 @@ def main():
                     except zmq.Again:
                         pass  # 发送缓冲区满，跳过此次发布
                 
-                # 实时打印对比
+                # 实时打印对比，显示锁定状态
+                lock_status = "Z-LOCKED" if z_locked else "Z-FREE"
                 print(f"Raw: t=[{t_raw[0]:.3f}, {t_raw[1]:.3f}, {t_raw[2]:.3f}], "
                       f"Euler=[{euler_raw_deg[0]:.1f}, {euler_raw_deg[1]:.1f}, {euler_raw_deg[2]:.1f}], "
                       f"Open={openness_raw:.3f} | "
-                      f"Filtered: t=[{t_filtered[0]:.3f}, {t_filtered[1]:.3f}, {t_filtered[2]:.3f}], "
+                      f"Filtered: t=[{t_filtered_with_lock[0]:.3f}, {t_filtered_with_lock[1]:.3f}, {t_filtered_with_lock[2]:.3f}], "
                       f"Euler=[{euler_filtered_deg[0]:.1f}, {euler_filtered_deg[1]:.1f}, {euler_filtered_deg[2]:.1f}], "
                       f"Open={openness_filtered:.3f} | "
-                      f"Published: {publish_count}      ",
+                      f"{lock_status} | Published: {publish_count}      ",
                       end="\r", flush=True)
                 
                 # 在画面上显示滤波后的数据
@@ -206,21 +222,22 @@ def main():
                                 (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
                     y_offset += line_height + 10
                 
-                # 显示滤波后数据 (绿色)
-                cv2.putText(frame, "FILTERED:", (10, y_offset),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                # 显示滤波后数据 (绿色)，Z轴锁定时用不同颜色
+                filtered_color = (0, 165, 255) if z_locked else (0, 255, 0)  # 锁定时用橙色，否则绿色
+                cv2.putText(frame, f"FILTERED ({lock_status}):", (10, y_offset),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, filtered_color, 2)
                 y_offset += line_height
                 
                 cv2.putText(frame, f"Open: {openness_filtered:.3f}", (10, y_offset),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, filtered_color, 2)
                 y_offset += line_height
                 
-                cv2.putText(frame, f"Pos: [{t_filtered[0]:.2f}, {t_filtered[1]:.2f}, {t_filtered[2]:.2f}]", 
-                            (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                cv2.putText(frame, f"Pos: [{t_filtered_with_lock[0]:.2f}, {t_filtered_with_lock[1]:.2f}, {t_filtered_with_lock[2]:.2f}]", 
+                            (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, filtered_color, 1)
                 y_offset += line_height
                 
                 cv2.putText(frame, f"Euler: [{euler_filtered_deg[0]:.1f}, {euler_filtered_deg[1]:.1f}, {euler_filtered_deg[2]:.1f}]", 
-                            (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                            (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, filtered_color, 1)
                 y_offset += line_height + 10
                 
                 # 显示发布数据 (蓝色)
@@ -239,6 +256,11 @@ def main():
                 cv2.putText(frame, f"Gripper: {publish_gripper:.3f}", (10, y_offset),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
                 y_offset += line_height
+                
+                # 显示Z轴锁定状态
+                if z_locked and locked_z_value is not None:
+                    cv2.putText(frame, f"Z-LOCKED at: {locked_z_value:.3f}", (10, y_offset),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 165, 255), 2)
                 
             else:
                 cv2.putText(frame, "PnP solve failed", (10, 30),
@@ -270,7 +292,10 @@ def main():
             print(f"\n对比显示: {'开启' if show_comparison else '关闭'}")
         elif key == ord('r') or key == ord('R'):  # 重置滤波器
             kalman_filter.reset()
-            print("\nKalman filter reset!")
+            # 同时重置Z轴锁定状态
+            z_locked = False
+            locked_z_value = None
+            print("\nKalman filter reset! Z-lock reset!")
         elif key == ord('p') or key == ord('P'):  # 切换发布状态
             publish_enabled = not publish_enabled
             status = "启用" if publish_enabled else "暂停"
